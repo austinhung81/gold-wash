@@ -182,11 +182,11 @@
     };
 
     function createScenes(){
-      plane1 = createPlane();
-      scene1.add(plane1);
+      // plane1 = createPlane();
+      // scene1.add(plane1);
 
-      plane2 = createPlane();
-      scene2.add(plane2);
+      // plane2 = createPlane();
+      // scene2.add(plane2);
 
       texture = createTexture();
       scene3.add(texture);
@@ -196,7 +196,22 @@
 
       var light = new THREE.DirectionalLight(0xffffff, 1); // White, full intensity
       light.position.set(5, 3, 5); // Position the light
+      light.intensity = 6.5;
+      // var light = new THREE.PointLight(0xffffff, 1.5, 100);
+      // light.position.set(5, 5, 5);
+
+      var light2 = new THREE.DirectionalLight(0xffffff, 0.5);
+      light2.position.set(-5, -3, -5);
+
+
       scene4.add(light);
+      scene4.add(light2);
+
+      // var boxHelper = new THREE.BoxHelper(model, 0xff0000);
+      // scene4.add(boxHelper);
+
+      // var axesHelper = new THREE.AxesHelper(5);
+      // scene4.add(axesHelper);
     };
 
     function createPlane(){
@@ -225,67 +240,77 @@
       return object;
     }
 
-    // function createTexture(){
-    //   var texture = new THREE.Texture("video"),
-    //       object = new THREE.Object3D(),
-    //       geometry = new THREE.PlaneGeometry(1.0, 1.0, 0.0),
-    //       material = new THREE.MeshBasicMaterial( {map: texture, depthTest: false, depthWrite: false} ),
-    //       mesh = new THREE.Mesh(geometry, material);
-
-    //   object.position.z = -1;
-
-    //   object.add(mesh);
-
-    //   return object;
-    // };
 
 
-    // function createModel(){
-    //   var object = new THREE.Object3D();
+//   function createModel() {
+//     var textureLoader = new THREE.TextureLoader();
+//     var goldTexture = textureLoader.load('./textures/Golden.jpg');
+//     var material = new THREE.MeshStandardMaterial({
+//         map: goldTexture,
+//         metalness: 1,
+//         roughness: 0.1
+//     });
 
-    //   var loader = new THREE.GLTFLoader();
-    //   loader.load('textures/Duck.gltf', function(gltf) {
-    //     var mesh = gltf.scene.children[0];
+//     var parentObject = new THREE.Object3D();
+//     var loader = new THREE.FBXLoader();
+//     loader.load('./textures/Golden.fbx', function(loadedObject) {
+//         loadedObject.traverse(function (node) {
+//             if (node.isMesh) {
+//                 node.geometry.center();
+//                 node.material = material;
+//             }
+//         });
 
-    //     // Set the minification filter to THREE.LinearFilter
-    //     mesh.material.map.minFilter = THREE.LinearFilter;
+//         loadedObject.geometry.computeBoundingBox();
+//         var heightOffset = loadedObject.geometry.boundingBox.min.y;
+//         loadedObject.position.y -= heightOffset; // Adjust vertical position
 
-    //     // Set the encoding to THREE.sRGBEncoding
-    //     mesh.material.map.encoding = THREE.sRGBEncoding;
+//         parentObject.add(loadedObject);
+//     }, undefined, function(error) {
+//         console.error(error);
+//     });
 
-    //     object.add(mesh);
-    //   });
-
-    //   return object;
-    // };
+//     return parentObject;
+// }
 
 
-    function createModel() {
-      var parentObject = new THREE.Object3D();  // This is the parent object.
 
-      var loader = new THREE.FBXLoader();
-      loader.load('./textures/Golden.fbx', function(loadedObject) {
-          loadedObject.traverse(function (node) {
-              if (node.isMesh) {
-                  var material = node.material;
-                  // node.material = new THREE.MeshStandardMaterial({ color: 0x555555 }); // Apply a grey material
-                  if (Array.isArray(material)) {
-                      for (var i = 0; i < material.length; i++) {
-                          setMaterialProperties(material[i]);
-                      }
-                  } else {
-                      setMaterialProperties(material);
-                  }
-              }
-          });
+function createModel() {
 
-          parentObject.add(loadedObject); // Add the loaded object to the parent object.
-      }, undefined, function(error) {
-          console.error(error);
-      });
+  var textureLoader = new THREE.TextureLoader();
+  var goldTexture = textureLoader.load('./textures/Golden.jpg');
 
-      return parentObject; // Return the parent object which now contains the loaded object.
-  }
+  var material = new THREE.MeshStandardMaterial({
+      map: goldTexture,
+      metalness: 1,  // High metalness for a metallic look
+      roughness: 0.1   // Adjusted for slight smoothness in reflections
+  });
+
+
+
+  var parentObject = new THREE.Object3D();  // This is the parent object.
+  var loader = new THREE.FBXLoader();
+  loader.load('./textures/Golden.fbx', function(loadedObject) {
+
+    loadedObject.traverse(function (node) {
+    if (node.isMesh) {
+            node.geometry.center(); 
+            // Apply the new material with the texture
+            node.material = new THREE.MeshStandardMaterial({
+                map: goldTexture,         // Apply the texture
+                metalness: 0.8,          // High metalness for a metallic look
+                roughness: 0.3,          // Adjusted roughness for shiny reflections
+                color: 0xFFD700          // Optional: Gold color to tint the texture
+            });
+        }
+    });
+      parentObject.add(loadedObject); // Add the loaded object to the parent object.
+  }, undefined, function(error) {
+      console.error(error);
+  });
+
+  return parentObject; // Return the parent object which now contains the loaded object.
+}
 
 
 
@@ -324,6 +349,46 @@ function setMaterialProperties(material) {
 
 
 
+
+
+
+function updateModel(model, x, y, rotation) {
+    model.position.x = x - canvas.width / 2;
+    model.position.y = (canvas.height / 2) - y;
+    model.rotation.z = rotation;  // Set rotation around Z-axis
+
+    // Correct the height if necessary to make it appear "sitting" on the QR code
+    model.position.z = 0;
+}
+
+
+// function updateScenes(markers) {
+//     if (markers.length > 0) {
+//         var marker = markers[0];
+//         var corners = marker.corners;
+        
+//         var centerX = 0, centerY = 0;
+//         corners.forEach(corner => {
+//             centerX += corner.x;
+//             centerY += corner.y;
+//         });
+//         centerX /= corners.length;
+//         centerY /= corners.length;
+
+//         var pose = posit.pose(corners);
+
+//         if (pose !== undefined) {
+//             updateObject(model, pose.bestRotation, pose.bestTranslation);
+//         }
+//     }
+// }
+
+// function updateObject(model, rotation, translation) {
+//     model.rotation.set(0, 0, Math.atan2(rotation[1][0], rotation[1][1]));
+//     model.position.set(translation[0] - canvas.width / 2, (canvas.height / 2) - translation[1], 0);
+// }
+
+
     function updateScenes(markers){
       var corners, corner, pose, i;
 
@@ -339,8 +404,8 @@ function setMaterialProperties(material) {
 
         pose = posit.pose(corners);
 
-        updateObject(plane1, pose.bestRotation, pose.bestTranslation);
-        updateObject(plane2, pose.alternativeRotation, pose.alternativeTranslation);
+        // updateObject(plane1, pose.bestRotation, pose.bestTranslation);
+        // updateObject(plane2, pose.alternativeRotation, pose.alternativeTranslation);
         updateObject(model, pose.bestRotation, pose.bestTranslation);
 
         step += 0.025;
