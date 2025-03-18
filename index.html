@@ -236,7 +236,7 @@
       var canvas = document.createElement('canvas');
       canvas.width = 512;  // Closest power of two
       canvas.height = 512;
-      var ctx = canvas.getContext('2d');
+      var ctx = canvas.getContext("2d", { willReadFrequently: true });
 
       function updateCanvas() {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
