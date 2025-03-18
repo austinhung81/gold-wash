@@ -226,12 +226,30 @@
           geometry = new THREE.PlaneGeometry(1.0, 1.0, 0.0),
           videoTexture = new THREE.VideoTexture(video);
 
-      videoTexture.format = THREE.RGBFormat;  // ✅ Use correct format for v0.89
+      // ✅ Add these lines to fix the debug warnings
+      videoTexture.minFilter = THREE.NearestFilter;  // Prevents performance issues with non-POT textures
+      videoTexture.magFilter = THREE.NearestFilter;
+      videoTexture.generateMipmaps = false;  // Disable mipmaps for better performance
+      videoTexture.format = THREE.RGBFormat;
+
+      // ✅ Manually resize video to a power-of-two texture
+      var canvas = document.createElement('canvas');
+      canvas.width = 512;  // Closest power of two
+      canvas.height = 512;
+      var ctx = canvas.getContext('2d');
+
+      function updateCanvas() {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          videoTexture.needsUpdate = true;
+          requestAnimationFrame(updateCanvas);
+      }
+
+      updateCanvas(); // Start updating video texture
 
       var material = new THREE.MeshBasicMaterial({
-          map: videoTexture,
-          depthTest: false,
-          depthWrite: false 
+        map: new THREE.CanvasTexture(canvas),  // Use the resized canvas texture
+        depthTest: false,
+        depthWrite: false 
       });
 
       var mesh = new THREE.Mesh(geometry, material);
