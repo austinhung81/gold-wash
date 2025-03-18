@@ -224,22 +224,22 @@
     function createTexture() {
       var object = new THREE.Object3D(),
           geometry = new THREE.PlaneGeometry(1.0, 1.0, 0.0),
-          videoTexture = new THREE.VideoTexture(video),
-      // ✅ Ensure it updates every frame
-      videoTexture.minFilter = THREE.LinearFilter;
-      videoTexture.magFilter = THREE.LinearFilter;
-      videoTexture.format = THREE.RGBFormat;
-      videoTexture.needsUpdate = true;
-      //
-      material = new THREE.MeshBasicMaterial({ map: videoTexture, depthTest: false, depthWrite: false }),
-      mesh = new THREE.Mesh(geometry, material);
+          videoTexture = new THREE.VideoTexture(video);
 
+      videoTexture.format = THREE.RGBFormat;  // ✅ Use correct format for v0.89
+
+      var material = new THREE.MeshBasicMaterial({
+          map: videoTexture,
+          depthTest: false,
+          depthWrite: false 
+      });
+
+      var mesh = new THREE.Mesh(geometry, material);
       object.position.z = -1;
       object.add(mesh);
 
       return object;
-    }
-
+  }
 
 
 //   function createModel() {
