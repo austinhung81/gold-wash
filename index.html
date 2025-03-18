@@ -41,7 +41,8 @@
     function onLoad(){
       video = document.getElementById("video");
       canvas = document.getElementById("canvas");
-      context = canvas.getContext("2d");
+      // ✅ Ensure this is set correctly
+      context = canvas.getContext("2d", { willReadFrequently: true });
 
       video.addEventListener('loadedmetadata', function() {
         if (video.readyState >= 3) {
