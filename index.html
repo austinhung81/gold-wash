@@ -140,7 +140,9 @@
     };
 
     function createRenderers(){
-      renderer = new THREE.WebGLRenderer(); // Only ONE renderer
+      //renderer = new THREE.WebGLRenderer(); // Only ONE renderer
+      renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true, alpha: true });
+
       renderer.setClearColor(0x000000, 1); // Set a default background color
       renderer.setSize(canvas.width, canvas.height);
       document.getElementById("container").appendChild(renderer.domElement);
@@ -163,12 +165,14 @@
     };
 
     function render(){
+      renderer.autoClear = false; // ✅ Prevent clearing video feed
       renderer.clear();
 
+      // ✅ Render scenes in correct order (video feed first)
+      renderer.render(scene3, camera3);  // 🎥 Video feed scene
+      renderer.render(scene4, camera4);  // 📦 3D Model scene
       renderer.render(scene1, camera1);
       renderer.render(scene2, camera2);
-      renderer.render(scene3, camera3);
-      renderer.render(scene4, camera4);
     };
 
     function createScenes(){
@@ -221,8 +225,14 @@
       var object = new THREE.Object3D(),
           geometry = new THREE.PlaneGeometry(1.0, 1.0, 0.0),
           videoTexture = new THREE.VideoTexture(video),
-          material = new THREE.MeshBasicMaterial({ map: videoTexture, depthTest: false, depthWrite: false }),
-          mesh = new THREE.Mesh(geometry, material);
+      // ✅ Ensure it updates every frame
+      videoTexture.minFilter = THREE.LinearFilter;
+      videoTexture.magFilter = THREE.LinearFilter;
+      videoTexture.format = THREE.RGBFormat;
+      videoTexture.needsUpdate = true;
+      //
+      material = new THREE.MeshBasicMaterial({ map: videoTexture, depthTest: false, depthWrite: false }),
+      mesh = new THREE.Mesh(geometry, material);
 
       object.position.z = -1;
       object.add(mesh);
