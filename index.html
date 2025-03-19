@@ -1,469 +1,116 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <title>Augmented Reality</title>
-
-
-  <script src="https://unpkg.com/three@0.90.0/build/three.js"></script>
-  <script src="./libs/inflate.min.js"></script>
-  <script src="https://unpkg.com/three@0.90.0/examples/js/loaders/FBXLoader.js"></script>
-
-
-  <!-- <script src="https://unpkg.com/three@0.100.0/build/three.js"></script>
-  <script type="text/javascript" src="./libs/FBXLoader.js"></script> -->
-
-  <!-- <script type="text/javascript" src="./libs/Three.js"></script> -->
-  <!-- <script type="text/javascript" src="./libs/FBXLoader.js"></script> -->
-  <!-- <script type="text/javascript" src="./libs/GLTFLoader.js"></script> -->
-
-  <script type="text/javascript" src="./src/svd.js"></script>
-  <script type="text/javascript" src="./src/posit1.js"></script>
-  <script type="text/javascript" src="./src/cv.js"></script>
-  <script type="text/javascript" src="./src/aruco.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR QR Code Activation</title>
+    
+    <!-- Include Three.js for AR rendering -->
+    <script src="https://unpkg.com/three@0.90.0/build/three.js"></script>
+    <script src="https://unpkg.com/three@0.90.0/examples/js/loaders/FBXLoader.js"></script>
+    <!-- Include jsQR for QR detection -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr"></script>
 </head>
+<body>
+    <video id="video" playsinline muted autoplay style="display:none; width: 640px; height: 360px;"></video>
+    <canvas id="canvas" style="width: 640px; height: 360px;"></canvas>
+    <div id="container" style="width: 640px; height: 360px;"></div>
 
-<body style="text-align: center; font-family: monospace;">
-  <video id="video" playsinline muted autoplay style="display:none; width: 640px; height: 360px;"></video>
+    <script>
+        var video, canvas, context, imageData;
+        var renderer, scene, camera, model;
 
-  <canvas id="canvas" style="width: 640px; height: 360px;"></canvas>
-  <div id="container" style="width: 640px; height: 360px;"></div>
+        function onLoad() {
+            video = document.getElementById("video");
+            canvas = document.getElementById("canvas");
+            context = canvas.getContext("2d", { willReadFrequently: true });
 
-  <script>
+            video.addEventListener('loadedmetadata', function() {
+                if (video.readyState >= 3) {
+                    video.play();
+                }
+            });
 
-    var video, canvas, context, imageData, detector, posit;
-    var renderer;
-    var scene1, scene2, scene3, scene4;
-    var camera1, camera2, camera3, camera4;
-    var plane1, plane2, model, texture;
-    var step = 0.0;
+            canvas.width = parseInt(canvas.style.width);
+            canvas.height = parseInt(canvas.style.height);
 
-    var modelSize = 35.0; //millimeters
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+                .then(function(stream) {
+                    video.srcObject = stream;
+                })
+                .catch(function(err) {
+                    console.log(err.name + ": " + err.message);
+                });
 
-    function onLoad(){
-      video = document.getElementById("video");
-      canvas = document.getElementById("canvas");
-      // ✅ Ensure this is set correctly
-      context = canvas.getContext("2d", { willReadFrequently: true });
-
-      video.addEventListener('loadedmetadata', function() {
-        if (video.readyState >= 3) {
-          video.play();
-        }
-      });
-
-      canvas.width = parseInt(canvas.style.width);
-      canvas.height = parseInt(canvas.style.height);
-
-      if (navigator.mediaDevices === undefined) {
-        navigator.mediaDevices = {};
-      }
-
-      if (navigator.mediaDevices.getUserMedia === undefined) {
-        navigator.mediaDevices.getUserMedia = function(constraints) {
-          var getUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
-
-          if (!getUserMedia) {
-            return Promise.reject(new Error('getUserMedia is not implemented in this browser'));
-          }
-
-          return new Promise(function(resolve, reject) {
-            getUserMedia.call(navigator, constraints, resolve, reject);
-          });
-        }
-      }
-
-      navigator.mediaDevices
-        .getUserMedia({ video: { facingMode: 'environment' } })
-        .then(function(stream) {
-          if ("srcObject" in video) {
-            video.srcObject = stream;
-          } else {
-            video.src = window.URL.createObjectURL(stream);
-          }
-        })
-        .catch(function(err) {
-          console.log(err.name + ": " + err.message);
-        }
-      );
-
-      detector = new AR.Detector();
-      posit = new POS.Posit(modelSize, canvas.width);
-
-      createRenderers();
-      createScenes();
-
-      requestAnimationFrame(tick);
-    };
-
-    function tick(){
-      requestAnimationFrame(tick);
-
-      if (video.readyState === video.HAVE_ENOUGH_DATA){
-        snapshot();
-
-        var markers = detector.detect(imageData);
-        drawCorners(markers);
-        updateScenes(markers);
-
-        render();
-      }
-    };
-
-    function snapshot(){
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-    };
-
-    function drawCorners(markers){
-      var corners, corner, i, j;
-
-      context.lineWidth = 3;
-
-      for (i = 0; i < markers.length; ++ i){
-        corners = markers[i].corners;
-
-        context.strokeStyle = "red";
-        context.beginPath();
-
-        for (j = 0; j < corners.length; ++ j){
-          corner = corners[j];
-          context.moveTo(corner.x, corner.y);
-          corner = corners[(j + 1) % corners.length];
-          context.lineTo(corner.x, corner.y);
+            setupAR();
+            requestAnimationFrame(tick);
         }
 
-        context.stroke();
-        context.closePath();
+        function tick() {
+            requestAnimationFrame(tick);
 
-        context.strokeStyle = "green";
-        context.strokeRect(corners[0].x - 2, corners[0].y - 2, 4, 4);
-        window.parent.postMessage('detected', "*");
-      }
-    };
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                snapshot();
+                render();
+            }
+        }
 
-    function createRenderers(){
-      //renderer = new THREE.WebGLRenderer(); // Only ONE renderer
-      renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true, alpha: true });
+        function snapshot() {
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            imageData = context.getImageData(0, 0, canvas.width, canvas.height);
 
-      renderer.setClearColor(0x000000, 1); // Set a default background color
-      renderer.setSize(canvas.width, canvas.height);
-      document.getElementById("container").appendChild(renderer.domElement);
+            var qrCode = jsQR(imageData.data, canvas.width, canvas.height);
+            if (qrCode && qrCode.data === "AR_GAME_GOLDWASH") {
+                console.log("Valid QR Code Detected:", qrCode.data);
+                
+                // ✅ Maintain the same message format for the upper layer
+                window.parent.postMessage('detected', "*");
+            }
+        }
 
-      scene1 = new THREE.Scene();
-      camera1 = new THREE.PerspectiveCamera(40, canvas.width / canvas.height, 1, 1000);
-      scene1.add(camera1);
+        function setupAR() {
+            renderer = new THREE.WebGLRenderer({ alpha: true });
+            renderer.setSize(canvas.width, canvas.height);
+            document.getElementById("container").appendChild(renderer.domElement);
 
-      scene2 = new THREE.Scene();
-      camera2 = new THREE.PerspectiveCamera(40, canvas.width / canvas.height, 1, 1000);
-      scene2.add(camera2);
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(40, canvas.width / canvas.height, 1, 1000);
+            scene.add(camera);
 
-      scene3 = new THREE.Scene();
-      camera3 = new THREE.OrthographicCamera(-0.5, 0.5, 0.5, -0.5);
-      scene3.add(camera3);
+            var light = new THREE.DirectionalLight(0xffffff, 1);
+            light.position.set(5, 5, 5);
+            scene.add(light);
 
-      scene4 = new THREE.Scene();
-      camera4 = new THREE.PerspectiveCamera(40, canvas.width / canvas.height, 1, 1000);
-      scene4.add(camera4);
-    };
+            loadModel();
+        }
 
-    function render(){
-      renderer.autoClear = false; // ✅ Prevent clearing video feed
-      renderer.clear();
-
-      // ✅ Render scenes in correct order (video feed first)
-      renderer.render(scene3, camera3);  // 🎥 Video feed scene
-      renderer.render(scene4, camera4);  // 📦 3D Model scene
-      renderer.render(scene1, camera1);
-      renderer.render(scene2, camera2);
-    };
-
-    function createScenes(){
-      // plane1 = createPlane();
-      // scene1.add(plane1);
-
-      // plane2 = createPlane();
-      // scene2.add(plane2);
-
-      texture = createTexture();
-      scene3.add(texture);
-
-      model = createModel();
-      scene4.add(model);
-
-      var light = new THREE.DirectionalLight(0xffffff, 1); // White, full intensity
-      light.position.set(5, 3, 5); // Position the light
-      light.intensity = 6.5;
-      // var light = new THREE.PointLight(0xffffff, 1.5, 100);
-      // light.position.set(5, 5, 5);
-
-      var light2 = new THREE.DirectionalLight(0xffffff, 0.5);
-      light2.position.set(-5, -3, -5);
-
-
-      scene4.add(light);
-      scene4.add(light2);
-
-      // var boxHelper = new THREE.BoxHelper(model, 0xff0000);
-      // scene4.add(boxHelper);
-
-      // var axesHelper = new THREE.AxesHelper(5);
-      // scene4.add(axesHelper);
-    };
-
-    function createPlane(){
-      var object = new THREE.Object3D(),
-          geometry = new THREE.PlaneGeometry(1.0, 1.0, 0.0),
-          material = new THREE.MeshNormalMaterial(),
-          mesh = new THREE.Mesh(geometry, material);
-
-      object.eulerOrder = 'YXZ';
-
-      object.add(mesh);
-
-      return object;
-    };
-
-    function createTexture() {
-      var object = new THREE.Object3D(),
-          geometry = new THREE.PlaneGeometry(1.0, 1.0, 0.0),
-          videoTexture = new THREE.VideoTexture(video);
-
-      // ✅ Add these lines to fix the debug warnings
-      videoTexture.minFilter = THREE.NearestFilter;  // Prevents performance issues with non-POT textures
-      videoTexture.magFilter = THREE.NearestFilter;
-      videoTexture.generateMipmaps = false;  // Disable mipmaps for better performance
-      videoTexture.format = THREE.RGBFormat;
-
-      // ✅ Manually resize video to a power-of-two texture
-      var canvas = document.createElement('canvas');
-      canvas.width = 512;  // Closest power of two
-      canvas.height = 512;
-      var ctx = canvas.getContext("2d", { willReadFrequently: true });
-
-      function updateCanvas() {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          videoTexture.needsUpdate = true;
-          requestAnimationFrame(updateCanvas);
-      }
-
-      updateCanvas(); // Start updating video texture
-
-      var material = new THREE.MeshBasicMaterial({
-        map: new THREE.CanvasTexture(canvas),  // Use the resized canvas texture
-        depthTest: false,
-        depthWrite: false 
-      });
-
-      var mesh = new THREE.Mesh(geometry, material);
-      object.position.z = -1;
-      object.add(mesh);
-
-      return object;
-  }
-
-
-//   function createModel() {
-//     var textureLoader = new THREE.TextureLoader();
-//     var goldTexture = textureLoader.load('./textures/Golden.jpg');
-//     var material = new THREE.MeshStandardMaterial({
-//         map: goldTexture,
-//         metalness: 1,
-//         roughness: 0.1
-//     });
-
-//     var parentObject = new THREE.Object3D();
-//     var loader = new THREE.FBXLoader();
-//     loader.load('./textures/Golden.fbx', function(loadedObject) {
-//         loadedObject.traverse(function (node) {
-//             if (node.isMesh) {
-//                 node.geometry.center();
-//                 node.material = material;
-//             }
-//         });
-
-//         loadedObject.geometry.computeBoundingBox();
-//         var heightOffset = loadedObject.geometry.boundingBox.min.y;
-//         loadedObject.position.y -= heightOffset; // Adjust vertical position
-
-//         parentObject.add(loadedObject);
-//     }, undefined, function(error) {
-//         console.error(error);
-//     });
-
-//     return parentObject;
-// }
-
-
-
-function createModel() {
-
-  var textureLoader = new THREE.TextureLoader();
-  var goldTexture = textureLoader.load('./textures/Golden.jpg');
-
-  var material = new THREE.MeshStandardMaterial({
-      map: goldTexture,
-      metalness: 1,  // High metalness for a metallic look
-      roughness: 0.1   // Adjusted for slight smoothness in reflections
-  });
-
-
-
-  var parentObject = new THREE.Object3D();  // This is the parent object.
-  var loader = new THREE.FBXLoader();
-  loader.load('./textures/Golden.fbx', function(loadedObject) {
-
-    loadedObject.traverse(function (node) {
-    if (node.isMesh) {
-            node.geometry.center(); 
-            // Apply the new material with the texture
-            node.material = new THREE.MeshStandardMaterial({
-                map: goldTexture,         // Apply the texture
-                metalness: 0.8,          // High metalness for a metallic look
-                roughness: 0.3,          // Adjusted roughness for shiny reflections
-                color: 0xFFD700          // Optional: Gold color to tint the texture
+        function loadModel() {
+            var loader = new THREE.FBXLoader();
+            loader.load('./textures/Golden.fbx', function(loadedObject) {
+                loadedObject.traverse(function(node) {
+                    if (node.isMesh) {
+                        node.geometry.center();  // Ensure the model is centered
+                        node.material = new THREE.MeshStandardMaterial({
+                            color: 0xFFD700, // Gold
+                            metalness: 1,
+                            roughness: 0.2
+                        });
+                    }
+                });
+                model = loadedObject;
+                model.scale.set(0.1, 0.1, 0.1); // Adjust model scale to fit in view
+                model.position.set(0, -1, -5); // Adjust position to be visible
+                scene.add(model);
+            }, undefined, function(error) {
+                console.error(error);
             });
         }
-    });
-      parentObject.add(loadedObject); // Add the loaded object to the parent object.
-  }, undefined, function(error) {
-      console.error(error);
-  });
 
-  return parentObject; // Return the parent object which now contains the loaded object.
-}
-
-
-
-function setMaterialProperties(material) {
-  if (material.map) {
-    material.map.encoding = THREE.sRGBEncoding;
-    material.map.minFilter = THREE.LinearFilter;
-    material.map.magFilter = THREE.LinearFilter;
-  }
-  if (material.emissiveMap) {
-    material.emissiveMap.encoding = THREE.sRGBEncoding;
-    material.emissiveMap.minFilter = THREE.LinearFilter;
-    material.emissiveMap.magFilter = THREE.LinearFilter;
-  }
-  if (material.normalMap) {
-    material.normalMap.encoding = THREE.LinearEncoding;
-    material.normalMap.minFilter = THREE.LinearFilter;
-    material.normalMap.magFilter = THREE.LinearFilter;
-  }
-  if (material.aoMap) {
-    material.aoMap.encoding = THREE.LinearEncoding;
-    material.aoMap.minFilter = THREE.LinearFilter;
-    material.aoMap.magFilter = THREE.LinearFilter;
-  }
-  if (material.roughnessMap) {
-    material.roughnessMap.encoding = THREE.LinearEncoding;
-    material.roughnessMap.minFilter = THREE.LinearFilter;
-    material.roughnessMap.magFilter = THREE.LinearFilter;
-  }
-  if (material.metalnessMap) {
-    material.metalnessMap.encoding = THREE.LinearEncoding;
-    material.metalnessMap.minFilter = THREE.LinearFilter;
-    material.metalnessMap.magFilter = THREE.LinearFilter;
-  }
-}
-
-
-
-
-
-
-function updateModel(model, x, y, rotation) {
-    model.position.x = x - canvas.width / 2;
-    model.position.y = (canvas.height / 2) - y;
-    model.rotation.z = rotation;  // Set rotation around Z-axis
-
-    // Correct the height if necessary to make it appear "sitting" on the QR code
-    model.position.z = 0;
-}
-
-
-// function updateScenes(markers) {
-//     if (markers.length > 0) {
-//         var marker = markers[0];
-//         var corners = marker.corners;
-        
-//         var centerX = 0, centerY = 0;
-//         corners.forEach(corner => {
-//             centerX += corner.x;
-//             centerY += corner.y;
-//         });
-//         centerX /= corners.length;
-//         centerY /= corners.length;
-
-//         var pose = posit.pose(corners);
-
-//         if (pose !== undefined) {
-//             updateObject(model, pose.bestRotation, pose.bestTranslation);
-//         }
-//     }
-// }
-
-// function updateObject(model, rotation, translation) {
-//     model.rotation.set(0, 0, Math.atan2(rotation[1][0], rotation[1][1]));
-//     model.position.set(translation[0] - canvas.width / 2, (canvas.height / 2) - translation[1], 0);
-// }
-
-
-    function updateScenes(markers){
-      var corners, corner, pose, i;
-
-      if (markers.length > 0){
-        corners = markers[0].corners;
-
-        for (i = 0; i < corners.length; ++ i){
-          corner = corners[i];
-
-          corner.x = corner.x - (canvas.width / 2);
-          corner.y = (canvas.height / 2) - corner.y;
+        function render() {
+            renderer.render(scene, camera);
         }
 
-        pose = posit.pose(corners);
-
-        // updateObject(plane1, pose.bestRotation, pose.bestTranslation);
-        // updateObject(plane2, pose.alternativeRotation, pose.alternativeTranslation);
-        updateObject(model, pose.bestRotation, pose.bestTranslation);
-
-        step += 0.025;
-
-        model.rotation.z -= step;
-      }
-
-      texture.children[0].material.map.needsUpdate = true;
-    };
-
-    function updateObject(object, rotation, translation){
-      object.scale.x = modelSize;
-      object.scale.y = modelSize;
-      object.scale.z = modelSize;
-
-      object.rotation.x = -Math.asin(-rotation[1][2]);
-      object.rotation.y = -Math.atan2(rotation[0][2], rotation[2][2]);
-      object.rotation.z = Math.atan2(rotation[1][0], rotation[1][1]);
-
-      object.position.x = translation[0];
-      object.position.y = translation[1];
-      object.position.z = -translation[2];
-    };
-
-    window.onload = onLoad;
-
-    document.getElementById('canvas').style.display = 'none';
-    document.getElementById('container').style.display = 'block';
-    window.addEventListener('message', (event) => {
-      const receivedMessage = event.data;
-      console.log('Received message from parent:', receivedMessage);
-
-      if (receivedMessage === 'openScanner') {
-        document.getElementById('container').style.display = 'none';
-      } else {
-        document.getElementById('canvas').style.display = 'none';
-        document.getElementById('container').style.display = 'block';
-      }
-    }, false);
-  </script>
+        window.onload = onLoad;
+    </script>
 </body>
 </html>
