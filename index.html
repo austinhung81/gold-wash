@@ -1,152 +1,541 @@
-<!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Augmented Reality</title>
+  <title>Augmented Reality</title>
 
-    <!-- Include Three.js for 3D rendering -->
-    <script src="https://unpkg.com/three@0.90.0/build/three.js"></script>
-    <script src="https://unpkg.com/three@0.90.0/examples/js/loaders/FBXLoader.js"></script>
-    <script src="./libs/inflate.min.js"></script>
-    
-    <!-- Include jsQR for QR detection -->
-    <script src="https://cdn.jsdelivr.net/npm/jsqr"></script>
+  <script src="https://unpkg.com/three@0.90.0/build/three.js"></script>
+  <script src="./libs/inflate.min.js"></script>
+  <script src="https://unpkg.com/three@0.90.0/examples/js/loaders/FBXLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+
+  <script type="text/javascript" src="./src/svd.js"></script>
+  <script type="text/javascript" src="./src/posit1.js"></script>
+  <script type="text/javascript" src="./src/cv.js"></script>
 </head>
+
 <body style="text-align: center; font-family: monospace;">
-    <video id="video" playsinline muted autoplay style="display:none; width: 640px; height: 360px;"></video>
-    <canvas id="canvas" style="width: 640px; height: 360px;"></canvas>
-    <div id="container" style="width: 640px; height: 360px;"></div>
+  <video id="video" playsinline muted autoplay style="width: 640px; height: 360px; position: absolute; opacity: 0;"></video>
 
-    <script>
-        var video, canvas, context, imageData;
-        var renderer, scene, camera;
-        var model;
-        var modelLoaded = false;
-        var qrDetected = false;
+  <canvas id="canvas" style="width: 640px; height: 360px; display: none;"></canvas>
+  <div id="container" style="width: 640px; height: 360px;"></div>
 
-        function onLoad() {
-            video = document.getElementById("video");
-            canvas = document.getElementById("canvas");
-            context = canvas.getContext("2d", { willReadFrequently: true });
+  <script>
+    var video, canvas, context, imageData;
+    var renderer;
+    var scene1, scene2, scene3, scene4;
+    var camera1, camera2, camera3, camera4;
+    var plane1, plane2, model, texture;
+    var step = 0.0;
+    var posit;
+    
+    var modelSize = 35.0; //millimeters
+    var lastQrCorners = null;
+    var cameraStarted = false;
 
-            video.addEventListener('loadedmetadata', function() {
-                if (video.readyState >= 3) {
-                    video.play();
-                }
+    function onLoad(){
+      video = document.getElementById("video");
+      canvas = document.getElementById("canvas");
+      context = canvas.getContext("2d", { willReadFrequently: true });
+
+      canvas.width = parseInt(canvas.style.width);
+      canvas.height = parseInt(canvas.style.height);
+
+      // Initialize camera immediately
+      initCamera();
+      
+      // Create renderers and scenes even before camera is fully loaded
+      createRenderers();
+      createScenes();
+
+      // Setup heartbeat to ensure camera stays running
+      setupVideoHeartbeat();
+
+      // Start animation loop
+      requestAnimationFrame(tick);
+    };
+    
+    function setupVideoHeartbeat() {
+  let lastRestartAttempt = 0;
+  
+  setInterval(() => {
+      const now = Date.now();
+      // Only attempt restart if last attempt was more than 5 seconds ago
+      if (video && (video.paused || video.ended) && now - lastRestartAttempt > 5000) {
+        console.log("Heartbeat: Video not playing, attempting restart");
+        lastRestartAttempt = now;
+        
+        video.play().catch(e => {
+          console.log("Heartbeat play attempt:", e);
+          // Don't try again immediately
+        });
+      }
+    }, 5000); // Check less frequently (every 5 seconds)
+  }
+    
+    // Replace your initCamera function with this improved version
+function initCamera() {
+  if (navigator.mediaDevices === undefined) {
+    navigator.mediaDevices = {};
+  }
+
+  if (navigator.mediaDevices.getUserMedia === undefined) {
+    navigator.mediaDevices.getUserMedia = function(constraints) {
+      var getUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+
+      if (!getUserMedia) {
+        return Promise.reject(new Error('getUserMedia is not implemented in this browser'));
+      }
+
+      return new Promise(function(resolve, reject) {
+        getUserMedia.call(navigator, constraints, resolve, reject);
+      });
+    }
+  }
+
+  // Track if camera initialization is in progress
+  let cameraInitInProgress = false;
+
+  // Setting up camera with proper error handling and retry mechanism
+  function startCamera() {
+    // Prevent multiple simultaneous initialization attempts
+    if (cameraInitInProgress) {
+      console.log("Camera initialization already in progress, skipping");
+      return;
+    }
+    
+    cameraInitInProgress = true;
+    
+    navigator.mediaDevices
+      .getUserMedia({ 
+        video: { 
+          facingMode: 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      })
+      .then(function(stream) {
+        console.log("Camera access granted");
+        
+        // Clear any existing source before setting new one
+        if (video.srcObject) {
+          video.srcObject.getTracks().forEach(track => track.stop());
+        }
+        
+        if ("srcObject" in video) {
+          video.srcObject = stream;
+        } else {
+          video.src = window.URL.createObjectURL(stream);
+        }
+        
+        // Set up video metadata loaded event handler
+        let playAttempted = false;
+        
+        function attemptPlayback() {
+          if (playAttempted) return;
+          playAttempted = true;
+          
+          video.play()
+            .then(() => {
+              console.log("Video playback started successfully");
+              cameraStarted = true;
+              cameraInitInProgress = false;
+            })
+            .catch(err => {
+              console.error("Error starting video playback:", err);
+              playAttempted = false;
+              cameraInitInProgress = false;
+              
+              // Try again with interaction only after a delay
+              setTimeout(() => {
+                document.addEventListener('click', function playOnClick() {
+                  attemptPlayback();
+                  document.removeEventListener('click', playOnClick);
+                }, { once: true });
+              }, 1000);
             });
+        }
+        
+        // Wait for metadata to load before playing
+        if (video.readyState >= 2) {
+          attemptPlayback();
+        } else {
+          video.addEventListener('loadedmetadata', function onMetadataLoaded() {
+            video.removeEventListener('loadedmetadata', onMetadataLoaded);
+            attemptPlayback();
+          });
+        }
+      })
+      .catch(function(err) {
+        console.error("Camera access error:", err.name + ": " + err.message);
+        cameraInitInProgress = false;
+        
+        // Retry with delay if permission was denied temporarily
+        if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+          console.log("Retrying camera access in 2 seconds...");
+          setTimeout(startCamera, 2000);
+        }
+      });
+  }
+  
+  // Initial camera start
+  startCamera();
+  
+  // Modify the heartbeat to be less aggressive
+  setupVideoHeartbeat();
+  
+  // Add event listener for page visibility changes
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') {
+      console.log("Page is now visible, ensuring camera is running");
+      if (!cameraStarted && !cameraInitInProgress) {
+        startCamera();
+      }
+    }
+  });
+  
+  // Initialize posit after camera setup
+  posit = new POS.Posit(modelSize, canvas.width);
+}
 
-            canvas.width = parseInt(canvas.style.width);
-            canvas.height = parseInt(canvas.style.height);
 
-            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-                .then(function(stream) {
-                    video.srcObject = stream;
-                })
-                .catch(function(err) {
-                    console.log(err.name + ": " + err.message);
+    function tick(){
+      requestAnimationFrame(tick);
+
+      if (video.readyState === video.HAVE_ENOUGH_DATA){
+        snapshot();
+
+        var qrResult = detectQR(imageData);
+        if (qrResult) {
+          // Don't draw QR corners - we don't want to show the red frame
+          // drawQRCorners(qrResult);
+          updateScenes(qrResult);
+        } else {
+          // Always update texture even when no QR code is detected
+          updateScenes(null);
+          //texture.children[0].material.map.needsUpdate = true;
+        }
+
+        render();
+      } else if (video.readyState < video.HAVE_CURRENT_DATA) {
+        // If video isn't playing or doesn't have data, try to restart it
+        if (video.paused && cameraStarted) {
+          console.log("Video paused in tick function, trying to resume");
+          video.play().catch(e => console.log("Resume attempt failed:", e));
+        } else if (!cameraStarted) {
+          console.log("Camera not started in tick function, trying to restart");
+          initCamera();
+        }
+      }
+    };
+
+    function snapshot(){
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      
+      // Optional: Clear the visible canvas if you don't want to show the camera feed at all
+      // context.clearRect(0, 0, canvas.width, canvas.height);
+    };
+
+    function detectQR(imageData) {
+      const code = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: "dontInvert",
+      });
+      
+      if (code && code.data === 'AR_GAME_GOLDWASH') {
+        lastQrCorners = code.location;
+        window.parent.postMessage('detected', "*");
+        return code;
+      }
+      return null;
+    }
+
+    function drawQRCorners(qrCode) {
+      // This function is no longer called in the tick function
+      // But we keep it in case we need it for debugging
+      const location = qrCode.location;
+      
+      context.lineWidth = 3;
+      context.strokeStyle = "red";
+      context.beginPath();
+      
+      // Draw the outline of the QR code
+      context.moveTo(location.topLeftCorner.x, location.topLeftCorner.y);
+      context.lineTo(location.topRightCorner.x, location.topRightCorner.y);
+      context.lineTo(location.bottomRightCorner.x, location.bottomRightCorner.y);
+      context.lineTo(location.bottomLeftCorner.x, location.bottomLeftCorner.y);
+      context.lineTo(location.topLeftCorner.x, location.topLeftCorner.y);
+      
+      context.stroke();
+      context.closePath();
+      
+      // Mark the top-left corner with a green square
+      context.strokeStyle = "green";
+      context.strokeRect(location.topLeftCorner.x - 2, location.topLeftCorner.y - 2, 4, 4);
+    }
+
+    function createRenderers(){
+      renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true, alpha: true });
+
+      renderer.setClearColor(0x000000, 0); // Set transparent background
+      renderer.setSize(canvas.width, canvas.height);
+      document.getElementById("container").appendChild(renderer.domElement);
+
+      scene1 = new THREE.Scene();
+      camera1 = new THREE.PerspectiveCamera(40, canvas.width / canvas.height, 1, 1000);
+      scene1.add(camera1);
+
+      scene2 = new THREE.Scene();
+      camera2 = new THREE.PerspectiveCamera(40, canvas.width / canvas.height, 1, 1000);
+      scene2.add(camera2);
+
+      scene3 = new THREE.Scene();
+      camera3 = new THREE.OrthographicCamera(-0.5, 0.5, 0.5, -0.5);
+      scene3.add(camera3);
+
+      scene4 = new THREE.Scene();
+      camera4 = new THREE.PerspectiveCamera(40, canvas.width / canvas.height, 1, 1000);
+      scene4.add(camera4);
+    };
+
+    function render(){
+      renderer.autoClear = false; // ✅ Prevent clearing video feed
+      renderer.clear();
+
+      // ✅ Render scenes in correct order (video feed first)
+      renderer.render(scene3, camera3);  // 🎥 Video feed scene
+      renderer.render(scene4, camera4);  // 📦 3D Model scene
+      renderer.render(scene1, camera1);
+      renderer.render(scene2, camera2);
+    };
+
+    function createScenes(){
+      texture = createTexture();
+      scene3.add(texture);
+
+      model = createModel();
+      // Don't add model to scene4 initially
+      // scene4.add(model);
+
+      var light = new THREE.DirectionalLight(0xffffff, 1); // White, full intensity
+      light.position.set(5, 3, 5); // Position the light
+      light.intensity = 6.5;
+
+      var light2 = new THREE.DirectionalLight(0xffffff, 0.5);
+      light2.position.set(-5, -3, -5);
+
+      scene4.add(light);
+      scene4.add(light2);
+    };
+
+    function createPlane(){
+      var object = new THREE.Object3D(),
+          geometry = new THREE.PlaneGeometry(1.0, 1.0, 0.0),
+          material = new THREE.MeshNormalMaterial(),
+          mesh = new THREE.Mesh(geometry, material);
+
+      object.eulerOrder = 'YXZ';
+
+      object.add(mesh);
+
+      return object;
+    };
+
+    function createTexture() {
+      var object = new THREE.Object3D(),
+          geometry = new THREE.PlaneGeometry(1.0, 1.0, 0.0),
+          videoTexture = new THREE.VideoTexture(video);
+
+      // ✅ Add these lines to fix the debug warnings
+      videoTexture.minFilter = THREE.NearestFilter;  // Prevents performance issues with non-POT textures
+      videoTexture.magFilter = THREE.NearestFilter;
+      videoTexture.generateMipmaps = false;  // Disable mipmaps for better performance
+      videoTexture.format = THREE.RGBFormat;
+
+      // ✅ Manually resize video to a power-of-two texture
+      var canvas = document.createElement('canvas');
+      canvas.width = 512;  // Closest power of two
+      canvas.height = 512;
+      var ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+      function updateCanvas() {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          videoTexture.needsUpdate = true;
+          requestAnimationFrame(updateCanvas);
+      }
+
+      updateCanvas(); // Start updating video texture
+
+      var material = new THREE.MeshBasicMaterial({
+        map: new THREE.CanvasTexture(canvas),  // Use the resized canvas texture
+        depthTest: false,
+        depthWrite: false 
+      });
+
+      var mesh = new THREE.Mesh(geometry, material);
+      object.position.z = -1;
+      object.add(mesh);
+
+      return object;
+    }
+
+    function createModel() {
+      var textureLoader = new THREE.TextureLoader();
+      var goldTexture = textureLoader.load('./textures/Golden.jpg');
+
+      var material = new THREE.MeshStandardMaterial({
+          map: goldTexture,
+          metalness: 1,  // High metalness for a metallic look
+          roughness: 0.1   // Adjusted for slight smoothness in reflections
+      });
+
+      var parentObject = new THREE.Object3D();  // This is the parent object.
+      var loader = new THREE.FBXLoader();
+      loader.load('./textures/Golden.fbx', function(loadedObject) {
+
+        loadedObject.traverse(function (node) {
+        if (node.isMesh) {
+                node.geometry.center(); 
+                // Apply the new material with the texture
+                node.material = new THREE.MeshStandardMaterial({
+                    map: goldTexture,         // Apply the texture
+                    metalness: 0.8,          // High metalness for a metallic look
+                    roughness: 0.3,          // Adjusted roughness for shiny reflections
+                    color: 0xFFD700          // Optional: Gold color to tint the texture
                 });
-
-            createRenderer();
-            createScene();
-            requestAnimationFrame(tick);
-        }
-
-        function tick() {
-            requestAnimationFrame(tick);
-
-            if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                snapshot();
-                render();
             }
+        });
+          parentObject.add(loadedObject); // Add the loaded object to the parent object.
+      }, undefined, function(error) {
+          console.error(error);
+      });
+
+      return parentObject; // Return the parent object which now contains the loaded object.
+    }
+
+    function setMaterialProperties(material) {
+      if (material.map) {
+        material.map.encoding = THREE.sRGBEncoding;
+        material.map.minFilter = THREE.LinearFilter;
+        material.map.magFilter = THREE.LinearFilter;
+      }
+      if (material.emissiveMap) {
+        material.emissiveMap.encoding = THREE.sRGBEncoding;
+        material.emissiveMap.minFilter = THREE.LinearFilter;
+        material.emissiveMap.magFilter = THREE.LinearFilter;
+      }
+      if (material.normalMap) {
+        material.normalMap.encoding = THREE.LinearEncoding;
+        material.normalMap.minFilter = THREE.LinearFilter;
+        material.normalMap.magFilter = THREE.LinearFilter;
+      }
+      if (material.aoMap) {
+        material.aoMap.encoding = THREE.LinearEncoding;
+        material.aoMap.minFilter = THREE.LinearFilter;
+        material.aoMap.magFilter = THREE.LinearFilter;
+      }
+      if (material.roughnessMap) {
+        material.roughnessMap.encoding = THREE.LinearEncoding;
+        material.roughnessMap.minFilter = THREE.LinearFilter;
+        material.roughnessMap.magFilter = THREE.LinearFilter;
+      }
+      if (material.metalnessMap) {
+        material.metalnessMap.encoding = THREE.LinearEncoding;
+        material.metalnessMap.minFilter = THREE.LinearFilter;
+        material.metalnessMap.magFilter = THREE.LinearFilter;
+      }
+    }
+
+    // Add this variable near the top with your other variables
+    var modelVisible = false;
+
+    function updateScenes(qrCode) {
+      if (qrCode) {
+        const location = qrCode.location;
+        
+        // Convert QR code corners to format expected by posit
+        const corners = [
+          { x: location.topLeftCorner.x, y: location.topLeftCorner.y },
+          { x: location.topRightCorner.x, y: location.topRightCorner.y },
+          { x: location.bottomRightCorner.x, y: location.bottomRightCorner.y },
+          { x: location.bottomLeftCorner.x, y: location.bottomLeftCorner.y }
+        ];
+        
+        // Adjust coordinates for posit
+        for (let i = 0; i < corners.length; ++i) {
+          corners[i].x = corners[i].x - (canvas.width / 2);
+          corners[i].y = (canvas.height / 2) - corners[i].y;
         }
+        
+        const pose = posit.pose(corners);
 
-        function snapshot() {
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-
-            var qrCode = jsQR(imageData.data, canvas.width, canvas.height);
-            if (qrCode && qrCode.data.trim() === "AR_GAME_GOLDWASH") {
-                if (!qrDetected) {
-                    qrDetected = true;
-                    console.log("Valid QR Code Detected:", qrCode.data);
-                    window.parent.postMessage('detected', "*");
-                    loadModel();
-                }
-            } else {
-                qrDetected = false;
-            }
+         // Make model visible if it's not already
+        if (!modelVisible) {
+          scene4.add(model);
+          modelVisible = true;
         }
-
-        function createRenderer() {
-            renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true, alpha: true });
-            renderer.setClearColor(0x000000, 1);
-            renderer.setSize(canvas.width, canvas.height);
-            document.getElementById("container").appendChild(renderer.domElement);
+        
+        updateObject(model, pose.bestRotation, pose.bestTranslation);
+        
+        step += 0.025;
+        model.rotation.z -= step;
+      } else {
+        // Remove model from scene when no QR code is detected
+        if (modelVisible) {
+          scene4.remove(model);
+          modelVisible = false;
         }
+      }
+      
+      // Always update the texture to keep video feed refreshing
+      texture.children[0].material.map.needsUpdate = true;
+    }
 
-        function createScene() {
-            scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(40, canvas.width / canvas.height, 1, 1000);
-            scene.add(camera);
+    function updateObject(object, rotation, translation){
+      object.scale.x = modelSize;
+      object.scale.y = modelSize;
+      object.scale.z = modelSize;
 
-            var light = new THREE.DirectionalLight(0xffffff, 1);
-            light.position.set(5, 3, 5);
-            scene.add(light);
+      object.rotation.x = -Math.asin(-rotation[1][2]);
+      object.rotation.y = -Math.atan2(rotation[0][2], rotation[2][2]);
+      object.rotation.z = Math.atan2(rotation[1][0], rotation[1][1]);
 
-            var light2 = new THREE.DirectionalLight(0xffffff, 0.5);
-            light2.position.set(-5, -3, -5);
-            scene.add(light2);
-        }
+      object.position.x = translation[0];
+      object.position.y = translation[1];
+      object.position.z = -translation[2];
+    };
 
-        function render() {
-            renderer.autoClear = false;
-            renderer.clear();
-            renderer.render(scene, camera);
-        }
+    // Call onLoad immediately when the page loads
+    window.onload = onLoad;
+    
+    // Also try to initialize even before window.onload in case DOM is already available
+    if (document.readyState === "interactive" || document.readyState === "complete") {
+      onLoad();
+    }
 
-        function loadModel() {
-            //if (modelLoaded) return;
+    // Ensure video playback on user interaction if autoplay fails
+    document.addEventListener('click', function() {
+      if (video && video.paused) {
+        video.play().catch(e => console.log("Manual play attempt:", e));
+      }
+    });
 
-            var loader = new THREE.FBXLoader();
-            loader.load('./textures/Golden.fbx', function(loadedObject) {
-                loadedObject.traverse(function(node) {
-                    if (node.isMesh) {
-                        node.geometry.center();
-                        node.material = new THREE.MeshStandardMaterial({
-                            color: 0xFFD700,
-                            metalness: 1,
-                            roughness: 0.1
-                        });
-                    }
-                });
+    // Keep container visible but hide canvas
+    document.getElementById('canvas').style.display = 'none';
+    document.getElementById('container').style.display = 'block';
+    
+    window.addEventListener('message', (event) => {
+      const receivedMessage = event.data;
+      //console.log('Received message from parent:', receivedMessage);
 
-                loadedObject.position.set(0, 0, 0);
-                loadedObject.scale.set(35, 35, 35);
-                scene.add(loadedObject);
-                model = loadedObject;
-                modelLoaded = true;
-                console.log("Golden.fbx successfully added to scene");
-
-                animateModel();
-            }, undefined, function(error) {
-                console.error("Error loading Golden.fbx:", error);
-            });
-        }
-
-        function animateModel() {
-            if (!model) return;
-
-            function animate() {
-                requestAnimationFrame(animate);
-                model.rotation.y += 0.01;
-                renderer.render(scene, camera);
-            }
-
-            animate();
-        }
-
-        window.onload = onLoad;
-    </script>
+      if (receivedMessage === 'openScanner') {
+        // Show both canvas and container when scanner is opened
+        document.getElementById('container').style.display = 'block';
+      } else if (receivedMessage === 'hideScanner') {
+        // Don't hide the container, just hide the canvas
+        document.getElementById('canvas').style.display = 'none';
+        document.getElementById('container').style.display = 'block';
+      }
+    }, false);
+  </script>
 </body>
 </html>
